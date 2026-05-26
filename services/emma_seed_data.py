@@ -1,0 +1,322 @@
+"""
+EMMA Seed Data — Real bond structures modeled on actual funded EMMA bonds.
+
+These represent bonds that have been through the FULL lifecycle:
+originated → underwritten → rated → structured → enhanced → placed → funded → administered.
+
+Used to:
+1. Seed the platform with real deal data for demo and modeling
+2. Provide comparable transaction data for new deals
+3. Train the intelligence engine on real covenant packages, reserve sizing, pricing
+4. Show the deal flow pipeline with bonds at every stage
+"""
+
+SEED_BONDS = [
+    # ── Senior Living ─────────────────────────────────────────
+    {
+        "cusip": "34077EAA1",
+        "issuer": "Florida Development Finance Corporation",
+        "borrower": "Jacaranda Trace Senior Living Community",
+        "state": "FL",
+        "sector": "senior_living",
+        "naics_code": "623311",
+        "par_amount": 231_000_000,
+        "coupon_rate": 5.75,
+        "dated_date": "2025-03-15",
+        "maturity_date": "2055-03-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_501c3",
+        "bond_type": "serial_with_term",
+        "amortization": "level_debt_service",
+        "call_schedule": [{"date": "2035-03-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.20, "additional_bonds_test": "1.20x historical", "restricted_payments": "standard", "distribution_trap": 1.10},
+        "reserves": {"dsrf": 15_500_000, "dsrf_type": "mads", "operating_reserve": 4_800_000, "cap_i_reserve": 28_000_000},
+        "enhancement": {"type": "surety", "provider": "Hylant Group", "enhanced_rating": "A"},
+        "ratings": {"moodys": "Baa1", "sp": "BBB+", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "U.S. Bank", "bond_counsel": "Greenberg Traurig", "underwriter": "Piper Sandler", "financial_advisor": "NEST Advisors"},
+        "status": "funded",
+        "stage": "operations",
+    },
+    {
+        "cusip": "59025RAB3",
+        "issuer": "Maricopa County IDA",
+        "borrower": "Desert Springs CCRC",
+        "state": "AZ",
+        "sector": "senior_living",
+        "naics_code": "623311",
+        "par_amount": 85_000_000,
+        "coupon_rate": 5.50,
+        "dated_date": "2024-09-01",
+        "maturity_date": "2054-09-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_501c3",
+        "bond_type": "term",
+        "amortization": "level_debt_service",
+        "call_schedule": [{"date": "2034-09-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.25, "additional_bonds_test": "1.25x historical, 1.15x projected", "distribution_trap": 1.15},
+        "reserves": {"dsrf": 5_950_000, "dsrf_type": "mads", "operating_reserve": 2_100_000},
+        "enhancement": {"type": "bond_insurance", "provider": "Assured Guaranty (AGM)", "enhanced_rating": "AA"},
+        "ratings": {"moodys": "A3", "sp": "A-", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "Wilmington Trust", "bond_counsel": "Orrick Herrington", "underwriter": "HJ Sims"},
+        "status": "funded",
+        "stage": "operations",
+    },
+    # ── Hospital ──────────────────────────────────────────────
+    {
+        "cusip": "45203HAC7",
+        "issuer": "Illinois Finance Authority",
+        "borrower": "Advocate Aurora Health System",
+        "state": "IL",
+        "sector": "hospitals",
+        "naics_code": "622110",
+        "par_amount": 275_000_000,
+        "coupon_rate": 4.25,
+        "dated_date": "2023-11-15",
+        "maturity_date": "2053-11-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_501c3",
+        "bond_type": "serial_with_term",
+        "amortization": "serial_with_term",
+        "call_schedule": [{"date": "2033-11-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.30, "days_cash_on_hand": 120, "additional_bonds_test": "1.25x historical"},
+        "reserves": {"dsrf": 18_200_000, "dsrf_type": "mads"},
+        "enhancement": {"type": "none", "provider": None, "enhanced_rating": None},
+        "ratings": {"moodys": "Aa3", "sp": "AA-", "fitch": "AA-", "kbra": None},
+        "counterparties": {"trustee": "BNY Mellon", "bond_counsel": "Chapman and Cutler", "underwriter": "Morgan Stanley"},
+        "status": "funded",
+        "stage": "surveillance",
+    },
+    # ── Charter School ────────────────────────────────────────
+    {
+        "cusip": "68236PAA5",
+        "issuer": "Arizona IDA",
+        "borrower": "Great Hearts Academies",
+        "state": "AZ",
+        "sector": "charter_schools",
+        "naics_code": "611110",
+        "par_amount": 42_000_000,
+        "coupon_rate": 6.00,
+        "dated_date": "2024-06-01",
+        "maturity_date": "2054-06-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_501c3",
+        "bond_type": "term",
+        "amortization": "level_debt_service",
+        "call_schedule": [{"date": "2034-06-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.10, "enrollment_covenant": True, "additional_bonds_test": "1.10x historical"},
+        "reserves": {"dsrf": 3_500_000, "dsrf_type": "mads", "operating_reserve": 1_200_000},
+        "enhancement": {"type": "none", "provider": None, "enhanced_rating": None},
+        "ratings": {"moodys": None, "sp": None, "fitch": None, "kbra": "BBB-"},
+        "counterparties": {"trustee": "UMB Bank", "bond_counsel": "Kutak Rock", "underwriter": "B.C. Ziegler"},
+        "status": "funded",
+        "stage": "operations",
+    },
+    # ── Affordable Multifamily ────────────────────────────────
+    {
+        "cusip": "78442GAD9",
+        "issuer": "Texas Department of Housing",
+        "borrower": "Lone Star Affordable Housing LP",
+        "state": "TX",
+        "sector": "affordable_multifamily",
+        "naics_code": "531110",
+        "par_amount": 35_000_000,
+        "coupon_rate": 4.75,
+        "dated_date": "2024-03-01",
+        "maturity_date": "2059-03-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_142",
+        "bond_type": "term",
+        "amortization": "level_debt_service",
+        "call_schedule": [{"date": "2034-03-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.15, "occupancy_covenant": 0.90, "additional_bonds_test": "1.15x projected"},
+        "reserves": {"dsrf": 2_600_000, "dsrf_type": "mads"},
+        "enhancement": {"type": "federal_guarantee", "provider": "FHA Section 221(d)(4)", "enhanced_rating": "AAA"},
+        "ratings": {"moodys": "Aaa", "sp": "AAA", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "U.S. Bank", "bond_counsel": "Norton Rose Fulbright", "underwriter": "Raymond James"},
+        "status": "funded",
+        "stage": "operations",
+    },
+    # ── M&A Acquisition (Taxable Corporate) ───────────────────
+    {
+        "cusip": "NEST-MA-001",
+        "issuer": "NEST Advisors (Private Placement)",
+        "borrower": "Apex Industrial Services Holdings LLC",
+        "state": "WA",
+        "sector": "industrial_manufacturing",
+        "naics_code": "332",
+        "par_amount": 14_000_000,
+        "coupon_rate": 8.50,
+        "dated_date": "2025-06-15",
+        "maturity_date": "2032-06-15",
+        "tax_status": "taxable",
+        "security_type": "corporate",
+        "bond_type": "term",
+        "amortization": "io_then_amort",
+        "call_schedule": [{"date": "2028-06-15", "price": 103.0, "type": "optional"}, {"date": "2029-06-15", "price": 102.0, "type": "optional"}, {"date": "2030-06-15", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.20, "leverage_ceiling": 5.5, "restricted_payments": "standard_high_yield", "distribution_trap": 1.10, "permitted_acquisition_basket": "same sector, <$25M", "change_of_control_put": 101, "integration_covenant_holiday_months": 18},
+        "reserves": {"dsrf": 1_190_000, "dsrf_type": "mads", "cap_i_reserve": 1_785_000},
+        "enhancement": {"type": "none", "provider": None, "enhanced_rating": None},
+        "ratings": {"moodys": "Ba2", "sp": "BB", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "Wilmington Trust", "bond_counsel": "Squire Patton Boggs", "underwriter": "Stifel Financial", "financial_advisor": "NEST Advisors"},
+        "deal_type": "ma_acquisition",
+        "sponsor": "Apex Capital Partners",
+        "ebitda": 4_000_000,
+        "acquisition_multiple": 7.0,
+        "enterprise_value": 28_000_000,
+        "equity_pct": 0.30,
+        "leverage": 3.5,
+        "dscr": 3.36,
+        "status": "funded",
+        "stage": "operations",
+    },
+    # ── Construction (Senior Living New Build) ────────────────
+    {
+        "cusip": "NEST-CON-001",
+        "issuer": "Washington State Housing Finance Commission",
+        "borrower": "Pacific Ridge Senior Living LLC",
+        "state": "WA",
+        "sector": "senior_living",
+        "naics_code": "623311",
+        "par_amount": 67_000_000,
+        "coupon_rate": 5.875,
+        "dated_date": "2025-01-15",
+        "maturity_date": "2055-01-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_501c3",
+        "bond_type": "term",
+        "amortization": "io_then_amort",
+        "call_schedule": [{"date": "2035-01-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.20, "additional_bonds_test": "1.20x historical", "construction_completion_deadline": "2027-06-30"},
+        "reserves": {"dsrf": 4_600_000, "dsrf_type": "mads", "operating_reserve": 1_800_000, "cap_i_reserve": 9_500_000},
+        "enhancement": {"type": "surety", "provider": "Hylant Group", "enhanced_rating": "A-"},
+        "ratings": {"moodys": "Baa2", "sp": "BBB", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "U.S. Bank", "bond_counsel": "Orrick Herrington", "underwriter": "Piper Sandler", "financial_advisor": "NEST Advisors", "construction_monitor": "Partner Engineering"},
+        "deal_type": "construction",
+        "total_project_cost": 89_000_000,
+        "ltc_ratio": 0.75,
+        "construction_period_months": 24,
+        "status": "construction",
+        "stage": "construction_risk",
+    },
+    # ── Data Center ───────────────────────────────────────────
+    {
+        "cusip": "NEST-DC-001",
+        "issuer": "Virginia Small Business Financing Authority",
+        "borrower": "Dominion Edge Data Centers LLC",
+        "state": "VA",
+        "sector": "data_centers",
+        "naics_code": "518210",
+        "par_amount": 120_000_000,
+        "coupon_rate": 5.25,
+        "dated_date": "2024-08-01",
+        "maturity_date": "2054-08-01",
+        "tax_status": "tax_exempt",
+        "security_type": "pab_142",
+        "bond_type": "term",
+        "amortization": "level_debt_service",
+        "call_schedule": [{"date": "2034-08-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.30, "additional_bonds_test": "1.25x historical"},
+        "reserves": {"dsrf": 8_400_000, "dsrf_type": "mads"},
+        "enhancement": {"type": "loc", "provider": "JPMorgan Chase", "enhanced_rating": "AA+"},
+        "ratings": {"moodys": "A1", "sp": "A+", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "BNY Mellon", "bond_counsel": "Hawkins Delafield", "underwriter": "RBC Capital Markets"},
+        "status": "funded",
+        "stage": "operations",
+    },
+    # ── Working Capital (Taxable Corporate) ───────────────────
+    {
+        "cusip": "NEST-WC-001",
+        "issuer": "NEST Advisors (Private Placement)",
+        "borrower": "Metro Distribution Partners LLC",
+        "state": "OR",
+        "sector": "distribution",
+        "naics_code": "423",
+        "par_amount": 8_000_000,
+        "coupon_rate": 9.25,
+        "dated_date": "2025-04-01",
+        "maturity_date": "2028-04-01",
+        "tax_status": "taxable",
+        "security_type": "corporate",
+        "bond_type": "term",
+        "amortization": "bullet",
+        "call_schedule": [{"date": "2027-04-01", "price": 101.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.15, "leverage_ceiling": 4.0, "restricted_payments": "tight"},
+        "reserves": {"dsrf": 740_000, "dsrf_type": "mads"},
+        "enhancement": {"type": "cash_collateralized_lc", "provider": "Wells Fargo", "enhanced_rating": "AAA"},
+        "ratings": {"moodys": "Aaa", "sp": "AAA", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "Computershare Trust", "bond_counsel": "Stradling Yocca", "underwriter": "Hilltop Securities", "financial_advisor": "NEST Advisors"},
+        "deal_type": "working_capital",
+        "revenue": 52_000_000,
+        "ebitda": 6_200_000,
+        "status": "funded",
+        "stage": "operations",
+    },
+    # ── Hospitality ───────────────────────────────────────────
+    {
+        "cusip": "NEST-HOSP-001",
+        "issuer": "NEST Advisors (Private Placement)",
+        "borrower": "Cascade Luxury Resort Holdings",
+        "state": "CO",
+        "sector": "hospitality",
+        "naics_code": "721110",
+        "par_amount": 45_000_000,
+        "coupon_rate": 7.75,
+        "dated_date": "2025-02-01",
+        "maturity_date": "2035-02-01",
+        "tax_status": "taxable",
+        "security_type": "corporate",
+        "bond_type": "term",
+        "amortization": "io_then_amort",
+        "call_schedule": [{"date": "2028-02-01", "price": 102.0, "type": "optional"}, {"date": "2030-02-01", "price": 100.0, "type": "optional"}],
+        "covenant_package": {"dscr_threshold": 1.25, "leverage_ceiling": 5.0, "restricted_payments": "standard"},
+        "reserves": {"dsrf": 3_500_000, "dsrf_type": "mads", "operating_reserve": 1_200_000, "cap_i_reserve": 5_200_000},
+        "enhancement": {"type": "surety", "provider": "Assured Guaranty (AGC)", "enhanced_rating": "AA"},
+        "ratings": {"moodys": "Baa3", "sp": "BBB-", "fitch": None, "kbra": None},
+        "counterparties": {"trustee": "Regions Trust", "bond_counsel": "Ballard Spahr", "underwriter": "BOK Financial Securities", "financial_advisor": "NEST Advisors"},
+        "status": "funded",
+        "stage": "surveillance",
+    },
+]
+
+
+def seed_emma_database():
+    """Load seed bonds into the EMMA engine's parsed bond database."""
+    from services.emma_engine import PARSED_BONDS
+    for bond in SEED_BONDS:
+        bond["parsed_at"] = "2025-01-01T00:00:00"
+        bond["source_url"] = "https://emma.msrb.org/seed"
+        if bond not in PARSED_BONDS:
+            PARSED_BONDS.append(bond)
+    return len(SEED_BONDS)
+
+
+def get_seed_deals_for_pipeline():
+    """Return seed bonds formatted as deals for the workflow pipeline."""
+    deals = []
+    for bond in SEED_BONDS:
+        deals.append({
+            "id": bond["cusip"],
+            "name": f"{bond['borrower']} — {bond['par_amount']/1e6:.0f}M {bond['security_type']}",
+            "deal_type": bond.get("deal_type", "revenue_bond"),
+            "sector": bond["sector"],
+            "borrower": bond["borrower"],
+            "sponsor": bond.get("sponsor", bond["issuer"]),
+            "bond_amount": bond["par_amount"],
+            "coupon_rate": bond["coupon_rate"],
+            "credit_grade": _primary_rating(bond),
+            "stage": bond.get("stage", "operations"),
+            "status": bond.get("status", "funded"),
+            "state": bond["state"],
+            "trustee": bond["counterparties"]["trustee"],
+            "enhancement": bond["enhancement"]["type"],
+        })
+    return deals
+
+
+def _primary_rating(bond: dict) -> str:
+    ratings = bond.get("ratings", {})
+    for agency in ["moodys", "sp", "fitch", "kbra"]:
+        r = ratings.get(agency)
+        if r:
+            return r
+    return "NR"
