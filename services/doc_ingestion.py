@@ -50,6 +50,17 @@ DOCUMENT_TYPES = {
             "market_occupancy", "cap_rate",
         ],
     },
+    "rent_roll": {
+        "keywords": ["rent roll", "unit number", "tenant", "lease expiration",
+                      "monthly rent", "move-in date", "unit type", "square feet"],
+        "extract_fields": [
+            "total_units", "occupied_units", "occupancy_pct",
+            "gross_potential_rent", "effective_gross_income",
+            "average_rent_per_unit", "average_sf_per_unit",
+            "lease_expiration_schedule", "vacancy_loss",
+            "concessions", "bad_debt",
+        ],
+    },
     "officer_certificate": {
         "keywords": ["officer's certificate", "covenant compliance", "debt service coverage",
                       "days cash on hand", "continuing covenant agreement", "bondholder representative"],
@@ -272,6 +283,117 @@ class DocIngestionEngine:
             "fields_found": list(result.keys()),
         }
 
+    def extract_property_intelligence(self, text: str) -> dict:
+        """Specialized extraction for appraisals — builds property intelligence.
+
+        Extracts unit mix, occupancy, property value, campus details,
+        fee model, year built, market data — everything needed to
+        understand the physical asset and its operating profile.
+        """
+        import re
+        result = {"doc_type": "appraisal", "extraction_method": "property_intelligence"}
+        prop = {}
+
+        # Unit counts by care level
+        il = re.search(r'(\d+)\s*(?:independent living|IL).*?(?:apartment|unit|residence)', text, re.IGNORECASE)
+        if il: prop['il_units'] = int(il.group(1))
+
+        al = re.search(r'(\d+)\s*(?:assisted living|AL).*?(?:apartment|unit)', text, re.IGNORECASE)
+        if al: prop['al_units'] = int(al.group(1))
+
+        mc = re.search(r'(\d+)\s*(?:memory (?:care|support)|MC).*?(?:apartment|unit|bed)', text, re.IGNORECASE)
+        if mc: prop['mc_units'] = int(mc.group(1))
+
+        snf = re.search(r'(\d+)\s*(?:skilled nursing|SNF).*?(?:bed|unit)', text, re.IGNORECASE)
+        if snf: prop['snf_beds'] = int(snf.group(1))
+
+        villas = re.search(r'(\d+)\s*(?:villa|cottage)', text, re.IGNORECASE)
+        if villas: prop['villas'] = int(villas.group(1))
+
+        prop['total_units'] = sum(prop.get(k, 0) for k in ['il_units', 'al_units', 'mc_units', 'snf_beds', 'villas'])
+
+        # Campus
+        acres = re.search(r'([\d.]+)[- ]?acre', text, re.IGNORECASE)
+        if acres: prop['campus_acres'] = float(acres.group(1))
+
+        # Appraised value
+        for pattern in [
+            r'(?:as.is|market|appraised)\s+(?:market\s+)?value[^$]*\$\s*([\d,]+(?:\.\d+)?)',
+            r'value.*(?:conclude|estimate|opinion)[^$]*\$\s*([\d,]+(?:\.\d+)?)',
+        ]:
+            val = re.search(pattern, text, re.IGNORECASE)
+            if val:
+                prop['appraised_value'] = float(val.group(1).replace(',', ''))
+                break
+
+        # Occupancy
+        for level, key in [('independent living|IL', 'il_occupancy_pct'),
+                           ('assisted living|AL', 'al_occupancy_pct'),
+                           ('memory care|MC', 'mc_occupancy_pct')]:
+            occ = re.search(rf'(?:{level}).*?(\d{{2,3}})%', text, re.IGNORECASE)
+            if occ: prop[key] = int(occ.group(1)) / 100
+
+        # Overall occupancy
+        total_occ = re.search(r'(?:total|overall|average)\s*(?:/\s*average)?\s*occupancy.*?(\d{2,3}(?:\.\d+)?)%', text, re.IGNORECASE)
+        if total_occ: prop['occupancy_pct'] = float(total_occ.group(1)) / 100
+
+        # Fee model
+        text_lower = text.lower()
+        if 'entrance fee' in text_lower or 'entry fee' in text_lower:
+            prop['fee_model'] = 'entrance_fee'
+        if 'life lease' in text_lower:
+            prop['fee_model'] = 'life_lease'
+        elif 'rental' in text_lower and 'entrance' not in text_lower:
+            prop['fee_model'] = 'rental'
+
+        # Entrance fee amounts
+        ef = re.search(r'(?:average|avg|mean)\s*(?:entrance|entry|upfront)\s*fee[^$]*\$\s*([\d,]+)', text, re.IGNORECASE)
+        if ef: prop['entrance_fee_avg'] = float(ef.group(1).replace(',', ''))
+
+        # Year built / opened
+        yr = re.search(r'(?:open(?:ed|ing)|construct(?:ed|ion)|built|completed)\s*(?:in\s+)?(\d{4})', text, re.IGNORECASE)
+        if yr: prop['year_built'] = int(yr.group(1))
+
+        # Most recent expansion
+        exp = re.search(r'(?:most recent|latest|last)\s*(?:expansion|phase|addition).*?(\d{4})', text, re.IGNORECASE)
+        if exp: prop['last_expansion_year'] = int(exp.group(1))
+
+        # Market data — PMA occupancy
+        pma_occ = re.search(r'(?:primary market|PMA).*?occupancy.*?(\d{2,3})%', text, re.IGNORECASE)
+        if pma_occ: prop['market_occupancy_pct'] = int(pma_occ.group(1)) / 100
+
+        # Property type classification
+        if any(kw in text_lower for kw in ['ccrc', 'continuing care', 'life plan']):
+            prop['property_type'] = 'CCRC'
+        elif 'senior living' in text_lower:
+            prop['property_type'] = 'senior_living'
+        elif 'multifamily' in text_lower or 'apartment' in text_lower:
+            prop['property_type'] = 'multifamily'
+        elif 'hospital' in text_lower:
+            prop['property_type'] = 'hospital'
+
+        # Location
+        loc = re.search(r'(?:located|situated)\s+(?:in|at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})', text)
+        if loc: prop['location'] = loc.group(1)
+        else:
+            loc2 = re.search(r'([A-Z][a-z]+),\s*(Florida|Texas|California|New York|Washington|Arizona)', text)
+            if loc2: prop['location'] = f"{loc2.group(1)}, {loc2.group(2)}"
+
+        # Appraiser
+        for firm in ['HealthTrust', 'Kaufman Hall', 'CliftonLarsonAllen', 'Plante Moran',
+                      'CBRE', 'JLL', 'Cushman', 'HVS', 'STR']:
+            if firm.lower() in text_lower:
+                prop['appraiser'] = firm
+                break
+
+        # Condominium structure (relevant for CCRCs)
+        if 'condominium' in text_lower:
+            prop['condo_structure'] = True
+
+        result['extracted'] = prop
+        result['fields_found'] = [k for k, v in prop.items() if v is not None]
+        return result
+
     def build_deal_from_docs(self, extractions: list[dict]) -> dict:
         """Combine extractions from multiple documents into a single deal record.
 
@@ -295,9 +417,26 @@ class DocIngestionEngine:
                         deal[k] = v
 
             elif doc_type == "appraisal":
-                # Property-specific data
-                for k in ["appraised_value", "unit_count", "unit_mix", "occupancy_pct",
-                           "entrance_fee_avg", "land_area_acres", "cap_rate"]:
+                # Property intelligence — builds the physical asset profile
+                deal["property"] = data
+                for k in ["appraised_value", "occupancy_pct", "entrance_fee_avg",
+                           "campus_acres", "cap_rate", "property_type", "fee_model",
+                           "location", "year_built", "total_units", "il_units",
+                           "al_units", "mc_units", "villas", "condo_structure",
+                           "il_occupancy_pct", "al_occupancy_pct", "mc_occupancy_pct",
+                           "market_occupancy_pct", "appraiser"]:
+                    if data.get(k) is not None:
+                        deal[k] = data[k]
+                # Compute LTV if we have appraised value and bond amount
+                if data.get("appraised_value") and deal.get("bond_amount"):
+                    deal["ltv"] = round(deal["bond_amount"] / data["appraised_value"], 4)
+
+            elif doc_type == "rent_roll":
+                # Rent roll feeds occupancy and revenue
+                deal["rent_roll"] = data
+                for k in ["total_units", "occupied_units", "occupancy_pct",
+                           "gross_potential_rent", "effective_gross_income",
+                           "average_rent_per_unit"]:
                     if data.get(k) is not None:
                         deal[k] = data[k]
 

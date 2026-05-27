@@ -45,9 +45,11 @@ def ingest_document(deal_id: str):
     # Classify and extract
     doc_type = engine.classify(text)
 
-    # Use specialized extraction for officer certificates
+    # Use specialized extractors by document type
     if doc_type == "officer_certificate":
         extraction = engine.extract_from_officer_cert(text)
+    elif doc_type == "appraisal":
+        extraction = engine.extract_property_intelligence(text)
     else:
         extraction = engine.extract(text, doc_type)
 
