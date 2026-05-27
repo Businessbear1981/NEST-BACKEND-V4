@@ -107,6 +107,57 @@ DOCUMENT_TYPES = {
     },
 }
 
+# ── Entity & Property Identification ──────────────────────────
+# These fields are extracted from EVERY document type — not just financials.
+# The platform builds the deal identity from whatever docs come in.
+
+ENTITY_FIELDS = [
+    "entity_name",           # Convivial Jacaranda Trace, LLC
+    "dba_name",              # Jacaranda Trace Retirement Community
+    "entity_type",           # LLC, Inc, LP, Trust, Corp
+    "state_of_formation",    # Florida
+    "tax_status",            # 501(c)(3), for-profit, government
+    "ein",                   # Federal EIN if found
+    "sponsor_name",          # David Falk, Convivial Life Inc
+    "management_company",    # If separate from owner
+    "contact_name",          # Joel Anderson, Chad Stutzman
+    "contact_title",         # CEO, Board Chair, Manager
+    "contact_email",
+    "contact_phone",
+]
+
+PROPERTY_FIELDS = [
+    "property_name",         # Jacaranda Trace Retirement Community
+    "property_address",      # 3600 William Penn Way
+    "city",                  # Venice
+    "state",                 # FL
+    "zip_code",              # 34293
+    "county",                # Sarasota
+    "parcel_number",         # From appraisal or title
+    "parcel_ids",            # Multiple parcels
+    "legal_description",     # From title/survey
+    "campus_acres",
+    "building_sf",
+    "year_built",
+    "zoning",
+]
+
+BOND_FIELDS = [
+    "cusip",                 # 34061WCA0
+    "cusip_list",            # Multiple series
+    "series_name",           # Series 2022A
+    "issuer_authority",      # Florida LGFC, conduit issuer
+    "trustee",               # UMB Bank
+    "trustee_contact",       # Kevin Fox
+    "bond_counsel",
+    "underwriter",           # Ziegler
+    "bondholder_rep",        # Deutsche Bank AG
+    "indenture_date",
+    "closing_date",
+    "maturity_date",
+    "outstanding_principal",
+]
+
 CLASSIFY_PROMPT = """You are a document classifier for NEST Advisors, a digital investment bank.
 
 Given the first few pages of a document, classify it into exactly ONE of these types:
@@ -282,6 +333,123 @@ class DocIngestionEngine:
             "extraction_method": "regex",
             "fields_found": list(result.keys()),
         }
+
+    def extract_entity_info(self, text: str) -> dict:
+        """Extract entity, property, and bond identifiers from ANY document.
+
+        Runs on every document regardless of type. Pulls addresses,
+        company names, parcel numbers, CUSIPs, counterparty names.
+        """
+        import re
+        info = {}
+
+        # Entity names — look for LLC, Inc, LP patterns
+        entity = re.search(r'([A-Z][A-Za-z\s&,]+(?:LLC|Inc\.?|LP|L\.P\.|Corp\.?|Trust|Association))', text)
+        if entity:
+            info["entity_name"] = entity.group(1).strip()
+
+        # DBA / project name
+        dba = re.search(r'(?:d/b/a|doing business as|known as|project name)[:\s]+([A-Z][A-Za-z\s]+)', text, re.IGNORECASE)
+        if dba:
+            info["dba_name"] = dba.group(1).strip()
+
+        # Address — street number + street name + city, state zip
+        addr = re.search(r'(\d+\s+[A-Za-z\s]+(?:Way|Street|Road|Drive|Avenue|Boulevard|Circle|Lane|Court|Place|Pkwy|Blvd|St|Rd|Dr|Ave|Ln|Ct|Pl))\s*[,.]?\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\s*[,.]?\s*([A-Z]{2})\s*(\d{5}(?:-\d{4})?)?', text)
+        if addr:
+            info["property_address"] = addr.group(1).strip()
+            info["city"] = addr.group(2).strip()
+            info["state"] = addr.group(3).strip()
+            if addr.group(4):
+                info["zip_code"] = addr.group(4).strip()
+
+        # Parcel numbers — various formats
+        parcel = re.search(r'(?:parcel|folio|APN|assessor|tax\s*(?:id|identification))\s*(?:#|number|no\.?)?\s*[:\s]*([0-9\-\.\/]+)', text, re.IGNORECASE)
+        if parcel:
+            info["parcel_number"] = parcel.group(1).strip()
+
+        # Multiple parcels
+        parcels = re.findall(r'(?:parcel|folio)\s*(?:#|number)?\s*[:\s]*([0-9][0-9\-\.\/]+[0-9])', text, re.IGNORECASE)
+        if len(parcels) > 1:
+            info["parcel_ids"] = parcels
+
+        # CUSIP
+        cusips = re.findall(r'CUSIP\s*#?\s*([A-Z0-9]{9})', text, re.IGNORECASE)
+        if cusips:
+            info["cusip"] = cusips[0]
+            if len(cusips) > 1:
+                info["cusip_list"] = cusips
+
+        # Series name
+        series = re.findall(r'Series\s+(20\d{2}[A-Z]?)', text)
+        if series:
+            info["series_names"] = series
+
+        # EIN
+        ein = re.search(r'(?:EIN|Employer Identification|Tax ID)\s*[:#]?\s*(\d{2}-\d{7})', text, re.IGNORECASE)
+        if ein:
+            info["ein"] = ein.group(1)
+
+        # 501(c)(3) status
+        if '501(c)(3)' in text or '501c3' in text.lower():
+            info["tax_status"] = "501(c)(3)"
+        elif 'for-profit' in text.lower() or 'for profit' in text.lower():
+            info["tax_status"] = "for_profit"
+
+        # Trustee
+        for bank in ["U.S. Bank", "UMB Bank", "BNY Mellon", "Wilmington Trust",
+                      "Zions Bank", "Computershare", "Regions", "Truist"]:
+            if bank.lower() in text.lower():
+                info["trustee"] = bank
+                break
+
+        # Trustee contact
+        trustee_contact = re.search(r'(?:Dear|Attention|Attn)\s+(?:Mr\.|Ms\.|Mrs\.)?\s*([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+        if trustee_contact:
+            info["trustee_contact"] = trustee_contact.group(1)
+
+        # Bond counsel
+        for firm in ["Orrick", "Hawkins Delafield", "Squire Patton", "Norton Rose",
+                      "Kutak Rock", "Chapman and Cutler", "Greenberg Traurig",
+                      "Ballard Spahr", "Stradling Yocca"]:
+            if firm.lower() in text.lower():
+                info["bond_counsel"] = firm
+                break
+
+        # Underwriter
+        for uw in ["Piper Sandler", "Stifel", "Hilltop", "Raymond James", "RBC",
+                    "Ziegler", "B.C. Ziegler", "HJ Sims", "BOK Financial", "Baird",
+                    "Janney Montgomery"]:
+            if uw.lower() in text.lower():
+                info["underwriter"] = uw
+                break
+
+        # Bondholder representative
+        for rep in ["Deutsche Bank", "Bank of New York", "Wells Fargo"]:
+            if rep.lower() in text.lower():
+                info["bondholder_rep"] = rep
+                break
+
+        # Contact names with titles
+        contacts = re.findall(r'(?:Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]+\s+[A-Z][a-z]+)', text)
+        if contacts:
+            info["contacts_found"] = list(set(contacts))
+
+        # Dates
+        closing = re.search(r'(?:closing date|closed on|dated as of)\s*[:\s]*([A-Z][a-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}/\d{1,2}/\d{4})', text, re.IGNORECASE)
+        if closing:
+            info["closing_date"] = closing.group(1)
+
+        # County
+        county = re.search(r'([A-Z][a-z]+)\s+County', text)
+        if county:
+            info["county"] = county.group(1)
+
+        # Acres
+        acres = re.search(r'([\d.]+)[- ]?acre', text, re.IGNORECASE)
+        if acres:
+            info["campus_acres"] = float(acres.group(1))
+
+        return info
 
     def extract_property_intelligence(self, text: str) -> dict:
         """Specialized extraction for appraisals — builds property intelligence.
@@ -462,6 +630,23 @@ class DocIngestionEngine:
         if deal.get("funds_available_for_debt_service") and deal.get("total_outstanding_principal"):
             if "debt_yield" not in deal:
                 deal["debt_yield"] = round(deal["funds_available_for_debt_service"] / deal["total_outstanding_principal"], 4)
+
+        # Merge entity info from all documents
+        entity = {}
+        for ext in extractions:
+            ent = ext.get("extracted", {}).get("_entity", {})
+            for k, v in ent.items():
+                if v and k not in entity:
+                    entity[k] = v
+        if entity:
+            deal["entity"] = entity
+            # Promote key fields to deal level
+            for k in ["entity_name", "property_address", "city", "state", "zip_code",
+                       "county", "parcel_number", "cusip", "cusip_list", "series_names",
+                       "trustee", "bond_counsel", "underwriter", "ein", "tax_status",
+                       "bondholder_rep"]:
+                if entity.get(k) and k not in deal:
+                    deal[k] = entity[k]
 
         deal["_ingestion_timestamp"] = datetime.utcnow().isoformat()
         deal["_documents_ingested"] = len(extractions)

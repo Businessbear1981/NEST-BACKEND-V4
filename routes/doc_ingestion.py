@@ -45,6 +45,9 @@ def ingest_document(deal_id: str):
     # Classify and extract
     doc_type = engine.classify(text)
 
+    # Extract entity info from EVERY document (address, company, parcel, CUSIP)
+    entity_info = engine.extract_entity_info(text)
+
     # Use specialized extractors by document type
     if doc_type == "officer_certificate":
         extraction = engine.extract_from_officer_cert(text)
@@ -52,6 +55,9 @@ def ingest_document(deal_id: str):
         extraction = engine.extract_property_intelligence(text)
     else:
         extraction = engine.extract(text, doc_type)
+
+    # Merge entity info into extraction
+    extraction.setdefault("extracted", {}).update({"_entity": entity_info})
 
     extraction["filename"] = filename
     extraction["deal_id"] = deal_id
