@@ -21,13 +21,38 @@ class DealFlow:
         self.intel = IntelligenceEngine()
 
     def run_intake(self, deal: dict) -> dict:
-        """Stage 1: BD intake → Bond Desk. Runs sizing, enriches deal."""
+        """Stage 1: BD intake → Bond Desk. Runs sizing, enriches deal.
+
+        Handles all deal types: M&A, construction, working capital, equipment, real estate.
+        Each type returns different fields — normalize into a common deal structure.
+        """
         sizing = self.intel.size_bond(deal)
-        deal["bond_amount"] = sizing.get("capital_structure", {}).get("senior_bond", 0)
+        deal_type = deal.get("deal_type", "ma_acquisition")
+
+        # Extract bond amount from whichever field the sizing engine returns
+        deal["bond_amount"] = (
+            sizing.get("capital_structure", {}).get("senior_bond", 0) or
+            sizing.get("bond_amount", 0) or
+            deal.get("bond_amount", 0)
+        )
         deal["enterprise_value"] = sizing.get("valuation", {}).get("enterprise_value", 0)
-        deal["dscr"] = sizing.get("credit", {}).get("dscr", 0)
-        deal["credit_grade"] = sizing.get("credit", {}).get("grade", "")
-        deal["leverage"] = sizing.get("capital_structure", {}).get("total_leverage", 0)
+
+        # DSCR: use from sizing if available, otherwise preserve what was passed in
+        sized_dscr = sizing.get("credit", {}).get("dscr", 0)
+        deal["dscr"] = sized_dscr if sized_dscr > 0 else deal.get("dscr", 0)
+
+        # Credit grade: use from sizing if available
+        sized_grade = sizing.get("credit", {}).get("grade", "")
+        deal["credit_grade"] = sized_grade if sized_grade else self.intel._grade_credit(
+            deal.get("dscr", 1.0), deal.get("leverage", 5.0)
+        )
+
+        # Leverage: from sizing or preserve passed value
+        deal["leverage"] = (
+            sizing.get("capital_structure", {}).get("total_leverage", 0) or
+            deal.get("leverage", 0)
+        )
+
         deal["sources_and_uses"] = sizing.get("sources_and_uses", {})
         deal["readiness_flags"] = sizing.get("readiness_flags", [])
         deal["pricing"] = sizing.get("bond_structure", {})

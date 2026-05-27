@@ -323,8 +323,107 @@ REQUIRED_FINANCIAL_DATA = {
 # SCORING FUNCTIONS
 # ══════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════
+# SECTOR-SPECIFIC ADJUSTMENTS
+# Standard corporate metrics don't apply to all bond types.
+# Each sector has its own primary metrics and thresholds.
+# ══════════════════════════════════════════════════════════════
+
+SECTOR_SCORING_OVERRIDES = {
+    # CCRCs / Entrance-Fee Communities
+    # Standard Debt/EBITDA is WRONG — entrance fees are the primary cash engine.
+    # Correct metric: Funds Available for Debt Service (FADS) which includes
+    # net entrance fee cash (gross receipts - refunds), not GAAP amortized revenue.
+    # Turnover at 10-15% annually generates $18-25M on a 447-unit campus.
+    "senior_living": {
+        "primary_metric": "dscr",  # DSCR using FADS, not EBITDA
+        "secondary_metric": "days_cash_on_hand",
+        "adjustments": {
+            "entrance_fee_community": {
+                "description": "Entrance-fee CCRC — use FADS not EBITDA for coverage",
+                "dscr_thresholds": {
+                    "Aaa": 3.0, "Aa": 2.5, "A": 2.0, "Baa": 1.50, "Ba": 1.20, "B": 1.05,
+                },
+                "days_cash_thresholds": {
+                    "Aaa": 600, "Aa": 400, "A": 250, "Baa": 150, "Ba": 100, "B": 60,
+                },
+                "debt_yield_thresholds": {
+                    "Aaa": 0.25, "Aa": 0.20, "A": 0.15, "Baa": 0.11, "Ba": 0.08, "B": 0.05,
+                },
+                "turnover_velocity_factor": True,  # Higher turnover = stronger credit
+                "principal_sweep_credit": True,     # Mandatory sweep reduces outstanding
+            },
+        },
+    },
+    # Hospitals — days cash on hand is primary, not leverage
+    "hospitals": {
+        "primary_metric": "dscr",
+        "secondary_metric": "days_cash_on_hand",
+        "adjustments": {
+            "dscr_thresholds": {
+                "Aaa": 5.0, "Aa": 3.5, "A": 2.5, "Baa": 1.80, "Ba": 1.40, "B": 1.10,
+            },
+            "days_cash_thresholds": {
+                "Aaa": 400, "Aa": 300, "A": 200, "Baa": 150, "Ba": 90, "B": 50,
+            },
+            "operating_margin_factor": True,
+        },
+    },
+    # Charter Schools — enrollment is a key driver
+    "charter_schools": {
+        "primary_metric": "dscr",
+        "secondary_metric": "enrollment_stability",
+        "adjustments": {
+            "dscr_thresholds": {
+                "Aaa": 3.0, "Aa": 2.5, "A": 2.0, "Baa": 1.40, "Ba": 1.10, "B": 1.00,
+            },
+            "enrollment_weight": 0.15,  # Enrollment trend affects 15% of score
+        },
+    },
+    # Multifamily — NOI-based, cap rate driven
+    "affordable_multifamily": {
+        "primary_metric": "dscr",
+        "secondary_metric": "occupancy",
+        "adjustments": {
+            "dscr_thresholds": {
+                "Aaa": 2.5, "Aa": 2.0, "A": 1.60, "Baa": 1.30, "Ba": 1.15, "B": 1.05,
+            },
+            "ltv_thresholds": {
+                "Aaa": 0.50, "Aa": 0.60, "A": 0.70, "Baa": 0.75, "Ba": 0.80, "B": 0.85,
+            },
+        },
+    },
+    # Real Estate — NOI/cap rate based
+    "real_estate": {
+        "primary_metric": "dscr",
+        "secondary_metric": "ltv",
+        "adjustments": {
+            "dscr_thresholds": {
+                "Aaa": 2.5, "Aa": 2.0, "A": 1.60, "Baa": 1.30, "Ba": 1.15, "B": 1.05,
+            },
+            "ltv_thresholds": {
+                "Aaa": 0.50, "Aa": 0.60, "A": 0.65, "Baa": 0.70, "Ba": 0.75, "B": 0.80,
+            },
+        },
+    },
+}
+
+
 def score_sp_financial_risk(financials: dict) -> dict:
-    """Score a deal's financial risk profile per S&P methodology."""
+    """Score a deal's financial risk profile per S&P methodology.
+
+    Applies sector-specific adjustments when sector is provided.
+    For CCRCs/entrance-fee communities, uses FADS-based DSCR and
+    days cash on hand instead of standard Debt/EBITDA.
+    """
+    sector = financials.get("sector", "")
+    sector_override = SECTOR_SCORING_OVERRIDES.get(sector)
+
+    # If sector has specific scoring (CCRC, hospital, charter school, etc.)
+    if sector_override and financials.get("dscr"):
+        return _score_sector_specific(financials, sector_override, sector)
+
+    # Standard corporate scoring
     ffo_debt = financials.get("ffo_to_debt", 0)
     debt_ebitda = financials.get("debt_to_ebitda", 99)
 
@@ -360,6 +459,124 @@ def score_sp_financial_risk(financials: dict) -> dict:
         "debt_to_ebitda": {"value": debt_ebitda, "category": de_cat, "score": cat_scores[de_cat]},
         "combined_category": combined_cat,
         "combined_score": combined_score,
+        "sector_adjusted": False,
+    }
+
+
+def _score_sector_specific(financials: dict, override: dict, sector: str) -> dict:
+    """Score using sector-specific metrics instead of standard corporate ratios.
+
+    For CCRCs: DSCR (using FADS) + Days Cash + Debt Yield
+    For Hospitals: DSCR + Days Cash + Operating Margin
+    For Charter Schools: DSCR + Enrollment Stability
+    For Multifamily/RE: DSCR + LTV
+    """
+    dscr = financials.get("dscr", 0)
+    days_cash = financials.get("days_cash_on_hand", 0)
+    debt_yield = financials.get("debt_yield", 0)
+    ltv = financials.get("ltv", financials.get("ltv_pct", 0))
+
+    # Get sector-specific DSCR thresholds
+    adj = override.get("adjustments", {})
+    # Handle nested structure for senior_living
+    if "entrance_fee_community" in adj:
+        adj = adj["entrance_fee_community"]
+
+    dscr_thresholds = adj.get("dscr_thresholds", {})
+    dcoh_thresholds = adj.get("days_cash_thresholds", {})
+    dy_thresholds = adj.get("debt_yield_thresholds", {})
+    ltv_thresholds = adj.get("ltv_thresholds", {})
+
+    # Score DSCR against sector thresholds
+    dscr_rating = "B"
+    for rating in ["Aaa", "Aa", "A", "Baa", "Ba", "B"]:
+        if dscr >= dscr_thresholds.get(rating, 99):
+            dscr_rating = rating
+            break
+
+    # Score Days Cash
+    dcoh_rating = "B"
+    if dcoh_thresholds:
+        for rating in ["Aaa", "Aa", "A", "Baa", "Ba", "B"]:
+            if days_cash >= dcoh_thresholds.get(rating, 9999):
+                dcoh_rating = rating
+                break
+
+    # Score Debt Yield
+    dy_rating = None
+    if dy_thresholds and debt_yield > 0:
+        dy_rating = "B"
+        for rating in ["Aaa", "Aa", "A", "Baa", "Ba", "B"]:
+            if debt_yield >= dy_thresholds.get(rating, 99):
+                dy_rating = rating
+                break
+
+    # Score LTV (lower is better)
+    ltv_rating = None
+    if ltv_thresholds and ltv > 0:
+        ltv_rating = "B"
+        for rating in ["Aaa", "Aa", "A", "Baa", "Ba", "B"]:
+            if ltv <= ltv_thresholds.get(rating, 0):
+                ltv_rating = rating
+                break
+
+    # Combine — weighted average of available metrics
+    rating_scores = {"Aaa": 1, "Aa": 2, "A": 3, "Baa": 4, "Ba": 5, "B": 6}
+    scores = [rating_scores.get(dscr_rating, 6)]
+    weights = [0.50]  # DSCR always 50%
+
+    if dcoh_thresholds and days_cash > 0:
+        scores.append(rating_scores.get(dcoh_rating, 6))
+        weights.append(0.25)
+
+    if dy_rating:
+        scores.append(rating_scores.get(dy_rating, 6))
+        weights.append(0.25)
+
+    if ltv_rating:
+        scores.append(rating_scores.get(ltv_rating, 6))
+        weights.append(0.25)
+
+    # Normalize weights
+    total_weight = sum(weights)
+    weighted_score = sum(s * w for s, w in zip(scores, weights)) / total_weight
+    combined_score = round(weighted_score)
+    combined_score = max(1, min(combined_score, 6))
+
+    # Map back to S&P category
+    score_to_cat = {1: "minimal", 2: "modest", 3: "intermediate", 4: "significant", 5: "aggressive", 6: "highly_leveraged"}
+    combined_cat = score_to_cat[combined_score]
+
+    # Turnover velocity adjustment for CCRCs
+    turnover_adj = ""
+    if adj.get("turnover_velocity_factor"):
+        turnover = financials.get("annual_turnover_pct", 0)
+        if turnover >= 0.12:
+            combined_score = max(1, combined_score - 1)
+            combined_cat = score_to_cat[combined_score]
+            turnover_adj = f"Turnover {turnover:.0%} >= 12% — upgraded 1 notch"
+        elif turnover >= 0.10:
+            turnover_adj = f"Turnover {turnover:.0%} at 10% — neutral (validated by audited history)"
+
+    # Principal sweep adjustment
+    sweep_adj = ""
+    if adj.get("principal_sweep_credit") and financials.get("principal_sweep", False):
+        combined_score = max(1, combined_score - 1)
+        combined_cat = score_to_cat[combined_score]
+        sweep_adj = "Mandatory principal sweep — upgraded 1 notch"
+
+    return {
+        "sector": sector,
+        "sector_adjusted": True,
+        "methodology": f"Sector-specific: {override.get('primary_metric', 'dscr')}-based scoring",
+        "dscr": {"value": dscr, "implied_rating": dscr_rating, "thresholds": dscr_thresholds},
+        "days_cash_on_hand": {"value": days_cash, "implied_rating": dcoh_rating} if dcoh_thresholds else None,
+        "debt_yield": {"value": debt_yield, "implied_rating": dy_rating} if dy_rating else None,
+        "ltv": {"value": ltv, "implied_rating": ltv_rating} if ltv_rating else None,
+        "combined_category": combined_cat,
+        "combined_score": combined_score,
+        "adjustments_applied": [a for a in [turnover_adj, sweep_adj] if a],
+        "note": adj.get("description", ""),
     }
 
 
