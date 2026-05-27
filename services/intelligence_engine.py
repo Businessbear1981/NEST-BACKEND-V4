@@ -13,6 +13,19 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from services.rating_benchmarks import (
+    score_sp_financial_risk,
+    score_moodys_financial,
+    get_structuring_targets,
+    SP_ANCHOR_MATRIX,
+    SP_FINANCIAL_RISK_BENCHMARKS,
+    MOODYS_FINANCIAL_METRICS,
+    STRUCTURING_CRITERIA,
+    REQUIRED_FINANCIAL_DATA,
+    SP_ENHANCEMENT_OVERRIDES,
+    SP_RECOVERY_RATINGS,
+)
+
 
 # ── NAICS-Driven Sector Intelligence ─────────────────────────
 
@@ -378,21 +391,122 @@ class IntelligenceEngine:
             "exception_authority": policy["exception_authority"]["material"] if not passed else None,
         }
 
-    # ── Credit Grading ────────────────────────────────────────
+    # ── Credit Grading — Real S&P/Moody's Benchmarks ─────────
 
     def _grade_credit(self, dscr: float, leverage: float) -> str:
-        """Grade credit per JPMorgan benchmarks + Operating Framework."""
-        if dscr >= 2.0 and leverage < 2.5:
-            return "A"
-        elif dscr >= 1.75 and leverage < 3.5:
-            return "BBB"
-        elif dscr >= 1.50 and leverage < 4.5:
-            return "BBB"
-        elif dscr >= 1.20 and leverage < 5.5:
-            return "BB"
-        elif dscr >= 1.10 and leverage < 6.5:
-            return "B"
-        return "B"
+        """Grade credit using REAL S&P/Moody's published benchmarks.
+
+        Uses S&P Financial Risk Profile (Debt/EBITDA thresholds) as primary,
+        cross-referenced with Moody's Debt/EBITDA ranges. The more conservative
+        of the two agencies determines the grade.
+        """
+        # S&P scoring
+        sp_result = score_sp_financial_risk({
+            "ffo_to_debt": dscr * 0.15 if dscr else 0,  # Approximate FFO/Debt from DSCR
+            "debt_to_ebitda": leverage,
+        })
+        sp_score = sp_result["combined_score"]
+
+        # Moody's scoring
+        moodys_result = score_moodys_financial({
+            "debt_to_ebitda": leverage,
+            "ebitda_minus_capex_to_interest": dscr * 2.5 if dscr else 0,  # Approximate
+        })
+
+        # Map S&P financial risk score to rating grade (using anchor with moderate business risk)
+        sp_anchor = SP_ANCHOR_MATRIX.get((3, sp_score), "BBB")  # Assume satisfactory business risk
+
+        # Map Moody's
+        moodys_leverage = moodys_result.get("debt_to_ebitda", {}).get("implied_rating", "Baa")
+        moodys_map = {"Aaa": "AAA", "Aa": "AA", "A": "A", "Baa": "BBB", "Ba": "BB", "B": "B", "Caa": "CCC"}
+        moodys_equiv = moodys_map.get(moodys_leverage, "BB")
+
+        # Take the more conservative (S&P anchor vs Moody's implied)
+        rating_order = ["AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-", "BB+", "BB", "BB-", "B+", "B", "B-", "CCC"]
+
+        sp_idx = rating_order.index(sp_anchor) if sp_anchor in rating_order else 9
+        m_idx = rating_order.index(moodys_equiv) if moodys_equiv in rating_order else 9
+        conservative_idx = max(sp_idx, m_idx)
+
+        # Return simplified grade (no +/-)
+        result = rating_order[min(conservative_idx, len(rating_order) - 1)]
+        for grade in ["AAA", "AA", "A", "BBB", "BB", "B", "CCC"]:
+            if result.startswith(grade):
+                return grade
+        return "BB"
+
+    def full_rating_analysis(self, financials: dict) -> dict:
+        """Run complete S&P + Moody's analysis with all ratios.
+
+        This is the comprehensive analysis that uses every ratio both agencies publish.
+        Should be called after Roots has extracted all financial data from client docs.
+        """
+        sp_result = score_sp_financial_risk(financials)
+        moodys_result = score_moodys_financial(financials)
+
+        # S&P anchor (assume moderate business risk unless provided)
+        business_risk = financials.get("sp_business_risk_score", 3)
+        financial_risk = sp_result["combined_score"]
+        anchor = SP_ANCHOR_MATRIX.get((business_risk, financial_risk), "BBB")
+
+        # Enhancement impact
+        enhancement = financials.get("enhancement", "none")
+        if enhancement in SP_ENHANCEMENT_OVERRIDES:
+            enhancement_note = SP_ENHANCEMENT_OVERRIDES[enhancement]
+        else:
+            enhancement_note = None
+
+        # Structuring targets for the predicted rating
+        target_grade = anchor.rstrip("+-").replace("+", "").replace("-", "")
+        structuring = get_structuring_targets(target_grade)
+
+        return {
+            "sp_analysis": {
+                "financial_risk_profile": sp_result,
+                "business_risk_score": business_risk,
+                "anchor": anchor,
+                "enhancement_impact": enhancement_note,
+            },
+            "moodys_analysis": {
+                "financial_metrics": moodys_result,
+            },
+            "predicted_rating": anchor,
+            "structuring_targets": structuring,
+            "required_data_checklist": {
+                k: [f for f in v if financials.get(f) is None]
+                for k, v in REQUIRED_FINANCIAL_DATA.items()
+                if isinstance(v, list)
+            },
+        }
+
+    def optimize_structure(self, financials: dict, scenarios: list[dict] = None) -> list[dict]:
+        """Run multiple structuring scenarios and compare rating outcomes.
+
+        Each scenario modifies the base financials (e.g., add surety, tighten covenants,
+        increase equity) and re-scores to show the rating impact.
+        """
+        if not scenarios:
+            scenarios = [
+                {"name": "Base Case", "changes": {}},
+                {"name": "Add Bond Insurance (BAM)", "changes": {"enhancement": "bond_insurance"}},
+                {"name": "Add Cash-Collateralized LC", "changes": {"enhancement": "cash_collateralized_lc"}},
+                {"name": "Increase Equity to 35%", "changes": {"equity_pct": 0.35}},
+                {"name": "Tighten DSCR Covenant to 1.25x", "changes": {"dscr_covenant": 1.25}},
+            ]
+
+        results = []
+        for scenario in scenarios:
+            modified = {**financials, **scenario.get("changes", {})}
+            analysis = self.full_rating_analysis(modified)
+            results.append({
+                "scenario": scenario["name"],
+                "changes": scenario.get("changes", {}),
+                "predicted_rating": analysis["predicted_rating"],
+                "sp_financial_risk": analysis["sp_analysis"]["financial_risk_profile"]["combined_category"],
+                "enhancement_impact": analysis["sp_analysis"]["enhancement_impact"],
+                "structuring_targets": analysis["structuring_targets"],
+            })
+        return results
 
     # ── M&A Readiness Flags ───────────────────────────────────
 

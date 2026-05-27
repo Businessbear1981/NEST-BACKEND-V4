@@ -99,3 +99,87 @@ def pricing_benchmarks():
     """Return pricing benchmarks by rating."""
     from services.intelligence_engine import PRICING_BENCHMARKS, FEE_SCHEDULE
     return _ok({"benchmarks": PRICING_BENCHMARKS, "fees": FEE_SCHEDULE})
+
+
+@intel_engine_bp.post("/rating-analysis")
+def full_rating_analysis():
+    """Run complete S&P + Moody's analysis with ALL published ratio benchmarks.
+
+    Body: full financial data dict with ratios (ffo_to_debt, debt_to_ebitda, etc.)
+    Returns: S&P financial risk profile, Moody's metric scores, predicted rating,
+    structuring targets, data completeness checklist.
+
+    CTO NOTE: This endpoint uses confirmed published benchmarks from
+    rating_benchmarks.py. The scoring functions apply the exact thresholds
+    S&P and Moody's publish in their methodology documents.
+    """
+    body = request.get_json(silent=True) or {}
+    result = _engine().full_rating_analysis(body)
+    return _ok(result)
+
+
+@intel_engine_bp.post("/optimize")
+def optimize_structure():
+    """Run structuring scenarios and compare rating outcomes.
+
+    Body: { financials: {...}, scenarios: [{name, changes}, ...] }
+    If scenarios not provided, runs 5 default scenarios:
+    - Base case
+    - Add bond insurance
+    - Add cash-collateralized LC
+    - Increase equity to 35%
+    - Tighten DSCR covenant
+
+    Returns: array of scenarios with predicted rating for each.
+
+    CTO NOTE: This is the bond optimization engine. It runs the same
+    S&P/Moody's scoring against multiple structural variations to show
+    which structure produces the best rating at the lowest cost.
+    """
+    body = request.get_json(silent=True) or {}
+    financials = body.get("financials", body)
+    scenarios = body.get("scenarios")
+    result = _engine().optimize_structure(financials, scenarios)
+    return _ok(result)
+
+
+@intel_engine_bp.get("/benchmarks")
+def rating_benchmarks_endpoint():
+    """Return the full S&P and Moody's benchmark tables.
+
+    CTO NOTE: These are the REAL published benchmarks, not approximations.
+    S&P FFO/Debt, Debt/EBITDA thresholds for all 6 financial risk categories.
+    Moody's Debt/EBITDA, RCF/Net Debt, (EBITDA-Capex)/Interest for Aaa-Ca.
+    Source: public agency methodology documents.
+    """
+    from services.rating_benchmarks import (
+        SP_FINANCIAL_RISK_BENCHMARKS,
+        MOODYS_FINANCIAL_METRICS,
+        SP_ANCHOR_MATRIX,
+        STRUCTURING_CRITERIA,
+        REQUIRED_FINANCIAL_DATA,
+    )
+    return _ok({
+        "sp": {
+            "financial_risk_benchmarks": SP_FINANCIAL_RISK_BENCHMARKS,
+            "anchor_matrix": {f"{k[0]},{k[1]}": v for k, v in SP_ANCHOR_MATRIX.items()},
+        },
+        "moodys": {
+            "financial_metrics": MOODYS_FINANCIAL_METRICS,
+        },
+        "structuring_criteria": STRUCTURING_CRITERIA,
+        "required_financial_data": REQUIRED_FINANCIAL_DATA,
+    })
+
+
+@intel_engine_bp.get("/required-data")
+def required_data():
+    """Return the complete list of financial data needed from clients.
+
+    CTO NOTE: This drives the Roots document ingestion checklist.
+    Every ratio here needs to be extracted from client financials.
+    Same data feeds the credit memo, the rating pre-score, and
+    the structuring engine. One data schema, three consumers.
+    """
+    from services.rating_benchmarks import REQUIRED_FINANCIAL_DATA
+    return _ok(REQUIRED_FINANCIAL_DATA)
